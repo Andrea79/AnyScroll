@@ -57,10 +57,10 @@ To measure CPU, wakeups, energy and memory of the running app:
 ## How it was made
 
 AnyScroll was made by Andrea79 with [Claude Code](https://claude.com/claude-code),
-Anthropic's AI coding assistant. Claude wrote most of the code and the tools in
-`scripts/`, following Andrea79's directions; Andrea79 decided what to build and
-how it should behave, and tested the app on real hardware. Commits written with
-Claude carry a `Co-Authored-By: Claude` line.
+Anthropic's AI coding assistant. All of the code, including the tools in
+`scripts/`, was written by Claude under Andrea79's direction. Andrea79 came up
+with the idea, made the design decisions, and tested and debugged the app on
+real hardware. Commits written with Claude carry a `Co-Authored-By: Claude` line.
 
 ## Credits and license
 
