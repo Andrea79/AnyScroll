@@ -40,6 +40,22 @@ wheel to roll, nothing to hold down.
   (System Settings › Privacy & Security › Accessibility). AnyScroll needs it to
   see the clicks that start and stop scrolling and to send scroll events.
 
+## Install
+
+1. Download the latest **AnyScroll-<version>.dmg** from the
+   [Releases](https://github.com/Andrea79/AnyScroll/releases) page and open it.
+2. Drag **AnyScroll** onto the **Applications** folder next to it.
+3. Open AnyScroll. It is not notarized by Apple, so the first time macOS may
+   refuse to open it: go to **System Settings › Privacy & Security**, scroll
+   down and click **Open Anyway** (on macOS 13 and 14 you can also Control-click
+   the app and choose **Open**).
+4. When asked, allow AnyScroll in **System Settings › Privacy & Security ›
+   Accessibility**.
+
+AnyScroll lives in the menu bar; Settings and About are in its menu. A zip of
+the app is on the Releases page too. After installing a new version, allow it
+in Accessibility again.
+
 ## Build
 
 The app builds with the Swift compiler from Xcode; no Xcode project is needed.

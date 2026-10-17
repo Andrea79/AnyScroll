@@ -73,8 +73,10 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate, Settin
     var scrollRemainderX: CGFloat = 0  // sub-pixel scroll carried to the next frame
     var scrollRemainderY: CGFloat = 0
     private var debugFrame = 0
+    #if DEBUG_LOG
     /// Where the pointer is; the Dev build's bench mode replaces it with a scripted path.
     var pointerLocation: () -> NSPoint = { NSEvent.mouseLocation }
+    #endif
 
     let deadZone: CGFloat = 5.0
     // Distance past the dead zone at which the speed curve reaches its cap
@@ -326,7 +328,11 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate, Settin
 
     func performScroll(seconds: CGFloat) {
         guard let start = anchor else { return }
+        #if DEBUG_LOG
         let current = pointerLocation()
+        #else
+        let current = NSEvent.mouseLocation
+        #endif
         let deltaX = current.x - start.x
         let deltaY = current.y - start.y
 
