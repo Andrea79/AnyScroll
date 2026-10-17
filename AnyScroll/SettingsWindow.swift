@@ -9,6 +9,7 @@
 
 import Cocoa
 import SwiftUI
+import UniformTypeIdentifiers
 
 /// The settings the Settings window edits. Setting a property applies and saves it.
 @MainActor
@@ -18,6 +19,7 @@ protocol SettingsHost: AnyObject {
     var optionScrollStartsAutoScroll: Bool { get set }
     var scrollSensitivity: Double { get set }
     var horizontalScrolling: Bool { get set }
+    var excludedApps: [String] { get set }
     var isDirectionInverted: Bool { get set }
     var launchAtLogin: Bool { get set }
 }
@@ -119,14 +121,46 @@ struct SettingsView: View {
                     Toggle("Horizontal scrolling", isOn: store.binding(\.horizontalScrolling, default: false))
                         .toggleStyle(.switch)
                 }
-                Row("Invert direction", note: "Moving the pointer up scrolls down.") {
-                    Toggle("Invert direction", isOn: store.binding(\.isDirectionInverted, default: false))
+                Row("Natural scrolling", note: "The page follows the pointer, as if you were dragging it.") {
+                    Toggle("Natural scrolling", isOn: store.binding(\.isDirectionInverted, default: false))
                         .toggleStyle(.switch)
                 }
             } header: {
                 Text("Scrolling")
             } footer: {
                 FooterText("Near a screen edge the speed builds up sooner, so full speed is still reachable.")
+            }
+
+            Section {
+                let excluded = store.binding(\.excludedApps, default: [])
+                if excluded.wrappedValue.isEmpty {
+                    Text("No apps").foregroundStyle(.secondary)
+                }
+                ForEach(excluded.wrappedValue, id: \.self) { bundleID in
+                    HStack(spacing: 8) {
+                        Image(nsImage: AppInfo.icon(bundleID))
+                            .resizable()
+                            .frame(width: 18, height: 18)
+                        Text(AppInfo.name(bundleID))
+                        Spacer()
+                        Button {
+                            excluded.wrappedValue.removeAll { $0 == bundleID }
+                        } label: {
+                            Image(systemName: "minus.circle")
+                        }
+                        .buttonStyle(.borderless)
+                        .help("Remove")
+                    }
+                }
+                Button("Add App…") {
+                    let added = AppInfo.chooseApps().filter { !excluded.wrappedValue.contains($0) }
+                    excluded.wrappedValue += added
+                }
+            } header: {
+                Text("Excluded Apps")
+            } footer: {
+                FooterText("AnyScroll does not start in these apps, so they keep their own use of "
+                           + "the button, such as panning in design or 3D apps.")
             }
 
             Section {
@@ -137,8 +171,36 @@ struct SettingsView: View {
             }
         }
         .formStyle(.grouped)
-        .scrollDisabled(true)
-        .frame(width: 460, height: 660)
+        .frame(width: 460, height: 760)
+    }
+}
+
+/// Name, icon and picker for the apps in the exclusion list.
+@MainActor
+enum AppInfo {
+    static func name(_ bundleID: String) -> String {
+        guard let url = NSWorkspace.shared.urlForApplication(withBundleIdentifier: bundleID) else { return bundleID }
+        return FileManager.default.displayName(atPath: url.path)
+            .replacingOccurrences(of: ".app", with: "")
+    }
+
+    static func icon(_ bundleID: String) -> NSImage {
+        guard let url = NSWorkspace.shared.urlForApplication(withBundleIdentifier: bundleID) else {
+            return NSWorkspace.shared.icon(for: .application)
+        }
+        return NSWorkspace.shared.icon(forFile: url.path)
+    }
+
+    /// Lets the user pick apps from the Applications folder; returns their bundle ids.
+    static func chooseApps() -> [String] {
+        let panel = NSOpenPanel()
+        panel.title = "Exclude Apps"
+        panel.prompt = "Exclude"
+        panel.allowedContentTypes = [.application]
+        panel.allowsMultipleSelection = true
+        panel.directoryURL = URL(fileURLWithPath: "/Applications")
+        guard panel.runModal() == .OK else { return [] }
+        return panel.urls.compactMap { Bundle(url: $0)?.bundleIdentifier }
     }
 }
 

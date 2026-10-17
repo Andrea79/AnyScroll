@@ -73,6 +73,8 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate, Settin
     var scrollRemainderX: CGFloat = 0  // sub-pixel scroll carried to the next frame
     var scrollRemainderY: CGFloat = 0
     private var debugFrame = 0
+    /// Where the pointer is; the Dev build's bench mode replaces it with a scripted path.
+    var pointerLocation: () -> NSPoint = { NSEvent.mouseLocation }
 
     let deadZone: CGFloat = 5.0
     // Distance past the dead zone at which the speed curve reaches its cap
@@ -91,10 +93,13 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate, Settin
     var releaseStopsHold = true {            // hold the button while moving, release to stop
         didSet { settingChanged(releaseStopsHold, "releaseStopsHold") { $0.configureInterceptor() } }
     }
+    var excludedApps: [String] = [] {        // bundle ids where auto-scroll never starts
+        didSet { settingChanged(excludedApps, "excludedApps") { $0.configureInterceptor() } }
+    }
     var horizontalScrolling = false {         // off: only up and down
         didSet { settingChanged(horizontalScrolling, "horizontalScrolling") }
     }
-    var isDirectionInverted = false {         // Default is "up scrolls up"
+    var isDirectionInverted = false {         // "Natural scrolling"; default is "up scrolls up"
         didSet { settingChanged(isDirectionInverted, "invertScrollDirection") }
     }
     var launchAtLogin = false {
@@ -121,6 +126,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate, Settin
         if scrollSensitivity == 0 { scrollSensitivity = 1.0 } // Default if not set
         optionScrollStartsAutoScroll = defaults.bool(forKey: "optionScrollStartsAutoScroll")
         horizontalScrolling = defaults.bool(forKey: "horizontalScrolling")
+        excludedApps = defaults.stringArray(forKey: "excludedApps") ?? []
         releaseStopsHold = defaults.object(forKey: "releaseStopsHold") as? Bool ?? true
         if let savedMethod = defaults.string(forKey: "activationMethod"),
            let method = ActivationMethod(rawValue: savedMethod) {
@@ -134,7 +140,11 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate, Settin
         // "AXTrustedCheckOptionPrompt" is the value of kAXTrustedCheckOptionPrompt,
         // which Swift 6 rejects as a global mutable variable
         let options = ["AXTrustedCheckOptionPrompt": true] as CFDictionary
+        #if DEBUG_LOG
+        if !Bench.isRequested { _ = AXIsProcessTrustedWithOptions(options) }
+        #else
         _ = AXIsProcessTrustedWithOptions(options)
+        #endif
 
         setupMenuBar()
 
@@ -145,6 +155,9 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate, Settin
         interceptor.onStop = { [weak self] in self?.stopAutoScroll() }
         configureInterceptor()
         interceptor.start()
+        #if DEBUG_LOG
+        Bench.runIfRequested(self)
+        #endif
 
         updateTrackpadActivation()
     }
@@ -228,7 +241,8 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate, Settin
     }
 
     private func configureInterceptor() {
-        interceptor.configure(activationMethod: activationMethod, releaseStopsHold: releaseStopsHold)
+        interceptor.configure(activationMethod: activationMethod, releaseStopsHold: releaseStopsHold,
+                              excludedApps: Set(excludedApps))
     }
 
     // MARK: - Auto-scroll
@@ -302,6 +316,9 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate, Settin
 
     private func scrollFrame(at time: CFTimeInterval) {
         // Clamp so a stall (e.g. display sleep) does not turn into one big jump
+        #if DEBUG_LOG
+        if let last = lastFrameTime { Bench.stats?.frameIntervals.append(time - last) }
+        #endif
         let elapsed = lastFrameTime.map { min(max(time - $0, 0), 0.05) } ?? 1.0 / 60
         lastFrameTime = time
         performScroll(seconds: CGFloat(elapsed))
@@ -309,14 +326,17 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate, Settin
 
     func performScroll(seconds: CGFloat) {
         guard let start = anchor else { return }
-        let current = NSEvent.mouseLocation
+        let current = pointerLocation()
         let deltaX = current.x - start.x
         let deltaY = current.y - start.y
 
         let distanceX = horizontalScrolling ? max(0, abs(deltaX) - deadZone) : 0
         let distanceY = max(0, abs(deltaY) - deadZone)
-        scrollIndicator.update(vertical: distanceY == 0 ? .none : (deltaY > 0 ? .up : .down),
-                               horizontal: distanceX == 0 ? .none : (deltaX > 0 ? .right : .left))
+        // The arrows show where the page goes, so they flip with Natural scrolling
+        let pointsUp = (deltaY > 0) != isDirectionInverted
+        let pointsRight = (deltaX > 0) != isDirectionInverted
+        scrollIndicator.update(vertical: distanceY == 0 ? .none : (pointsUp ? .up : .down),
+                               horizontal: distanceX == 0 ? .none : (pointsRight ? .right : .left))
 
         let boostedX = distanceX * (deltaX > 0 ? edgeBoost.right : edgeBoost.left)
         let boostedY = distanceY * (deltaY > 0 ? edgeBoost.up : edgeBoost.down)
@@ -352,6 +372,9 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate, Settin
         // instead would keep scrolling the clicked window, but macOS then moves the
         // pointer there; posting to the app's pid is ignored.
         scrollEvent.post(tap: .cgSessionEventTap)
+        #if DEBUG_LOG
+        Bench.stats?.events += 1
+        #endif
 
         debugFrame += 1
         if debugFrame % 15 == 1 {
@@ -409,7 +432,10 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate, Settin
                   event.modifierFlags.contains(.option),
                   event.hasPreciseScrollingDeltas,
                   event.phase == .began else { return }
-            self.startAutoScroll(at: NSEvent.mouseLocation)
+            let point = NSEvent.mouseLocation
+            let displayPoint = CGPoint(x: point.x, y: (NSScreen.screens.first?.frame.maxY ?? 0) - point.y)
+            if let app = AppUnderPointer.bundleIdentifier(at: displayPoint), self.excludedApps.contains(app) { return }
+            self.startAutoScroll(at: point)
         }
     }
 

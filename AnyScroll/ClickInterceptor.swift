@@ -54,6 +54,7 @@ final class ClickInterceptor: @unchecked Sendable {
     private let lock = NSLock()
     private var activationMethod: ActivationMethod = .middleClick
     private var releaseStopsHold = true
+    private var excludedApps = Set<String>()        // bundle ids where auto-scroll never starts
     private var isScrolling = false
 
     // Only used on the tap thread
@@ -74,11 +75,12 @@ final class ClickInterceptor: @unchecked Sendable {
     /// releasing the button then stops auto-scroll.
     private let holdDistance: CGFloat = 10
 
-    func configure(activationMethod: ActivationMethod, releaseStopsHold: Bool) {
+    func configure(activationMethod: ActivationMethod, releaseStopsHold: Bool, excludedApps: Set<String>) {
         lock.lock()
         defer { lock.unlock() }
         self.activationMethod = activationMethod
         self.releaseStopsHold = releaseStopsHold
+        self.excludedApps = excludedApps
     }
 
     func setScrolling(_ scrolling: Bool) {
@@ -180,7 +182,8 @@ final class ClickInterceptor: @unchecked Sendable {
             heldPress = nil
             stop()
             handled = true
-        } else if type == .otherMouseDown, button == method.buttonNumber, isActivation(event, method: method) {
+        } else if type == .otherMouseDown, button == method.buttonNumber, isActivation(event, method: method),
+                  !isExcludedApp(at: event.location) {
             setScrolling(true)
             let location = event.location
             heldPress = HeldPress(button: button, origin: location)
@@ -194,6 +197,18 @@ final class ClickInterceptor: @unchecked Sendable {
         guard handled else { return passThrough }
         swallowedMouseUps.insert(button)
         return nil
+    }
+
+    /// Whether the window under the click belongs to an app the user excluded, which then
+    /// gets the click itself (e.g. to pan with the middle button).
+    private func isExcludedApp(at point: CGPoint) -> Bool {
+        lock.lock()
+        let excluded = excludedApps
+        lock.unlock()
+        guard !excluded.isEmpty, let app = AppUnderPointer.bundleIdentifier(at: point) else { return false }
+        let isExcluded = excluded.contains(app)
+        DebugLog.write("click over \(app), excluded=\(isExcluded)")
+        return isExcluded
     }
 
     private func stop() {

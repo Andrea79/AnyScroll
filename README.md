@@ -25,7 +25,10 @@ wheel to roll, nothing to hold down.
 - **Choose how to start**: middle click, Shift/Cmd/Option + middle click,
   double middle click, or a side button. Optionally Option + two-finger
   trackpad scroll.
-- **Adjustable speed** (0.2x to 3.0x), inverted direction, open at login.
+- **Exclude apps** that use the middle button themselves, such as panning in
+  design or 3D apps: AnyScroll leaves the click to them.
+- **Adjustable speed** (0.2x to 3.0x), natural scrolling, open at login.
+- **Never goes online**: no network access, no data collected or sent.
 - Light: about 30 MB of memory and no CPU while idle.
 
 ## Requirements
@@ -53,6 +56,9 @@ treats the app as new and Accessibility must be granted again.
 To redraw the app icon at every size: `swift scripts/make_icon.swift`.
 To measure CPU, wakeups, energy and memory of the running app:
 `./scripts/profile.sh 30 idle` (start auto-scroll while it runs to measure scrolling).
+For a repeatable comparison between versions, `./scripts/bench.sh` runs the Dev
+build with a scripted pointer on every screen and appends the results to
+`bench/results.csv`, which stays on your Mac (it is not tracked by git).
 
 ## How it was made
 
