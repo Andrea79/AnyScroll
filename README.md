@@ -6,7 +6,7 @@
 
 Press the middle mouse button where you want to scroll and an anchor appears.
 Move the pointer away from it and the page scrolls by itself: the further you
-go, the faster it scrolls. Click any button to stop. Your fingers rest; no
+go, the faster it scrolls. Click any button or press Esc to stop. Your fingers rest; no
 wheel to roll, nothing to hold down.
 
 ## Features
@@ -25,6 +25,9 @@ wheel to roll, nothing to hold down.
 - **Choose how to start**: middle click, Shift/Cmd/Option + middle click,
   double middle click, or a side button. Optionally Option + two-finger
   trackpad scroll.
+- **Keyboard shortcut**: record your own or pick a suggestion to start and stop
+  auto-scroll at the pointer, handy with a Magic Mouse or a trackpad. It uses
+  the system hot-key service, so AnyScroll never reads what you type.
 - **Exclude apps** that use the middle button themselves, such as panning in
   design or 3D apps: AnyScroll leaves the click to them.
 - **Adjustable speed** (0.2x to 3.0x), natural scrolling, open at login.

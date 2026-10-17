@@ -10,6 +10,7 @@
 import Cocoa
 import SwiftUI
 import UniformTypeIdentifiers
+import Carbon.HIToolbox
 
 /// The settings the Settings window edits. Setting a property applies and saves it.
 @MainActor
@@ -20,6 +21,7 @@ protocol SettingsHost: AnyObject {
     var scrollSensitivity: Double { get set }
     var horizontalScrolling: Bool { get set }
     var excludedApps: [String] { get set }
+    var keyboardShortcut: KeyboardShortcut? { get set }
     var isDirectionInverted: Bool { get set }
     var launchAtLogin: Bool { get set }
 }
@@ -90,6 +92,9 @@ struct SettingsView: View {
                     }
                     .fixedSize()
                 }
+                Row("Keyboard shortcut", note: "Starts or stops auto-scroll at the pointer.") {
+                    ShortcutRecorder(shortcut: store.binding(\.keyboardShortcut, default: nil))
+                }
                 Row("Release to stop after holding", note: "Hold the button while you move, then let go to stop.") {
                     Toggle("Release to stop after holding", isOn: store.binding(\.releaseStopsHold, default: true))
                         .toggleStyle(.switch)
@@ -103,7 +108,7 @@ struct SettingsView: View {
             } footer: {
                 FooterText("Press the button once where you want to scroll: an anchor appears. "
                            + "Move the pointer away from it to scroll (on a trackpad, with one finger); "
-                           + "the further you go, the faster it scrolls. Click any button to stop, "
+                           + "the further you go, the faster it scrolls. Click any button or press Esc to stop, "
                            + "or hold the button down while you move and let go to stop.")
             }
 
@@ -172,6 +177,65 @@ struct SettingsView: View {
         }
         .formStyle(.grouped)
         .frame(width: 460, height: 760)
+    }
+}
+
+/// Records a shortcut by pressing it, or picks one of the suggestions.
+/// While recording, Esc cancels and Delete removes the shortcut.
+private struct ShortcutRecorder: View {
+    @Binding var shortcut: KeyboardShortcut?
+    @State private var isRecording = false
+    @State private var monitor: Any?
+
+    var body: some View {
+        HStack(spacing: 4) {
+            Button(isRecording ? "Type shortcut…" : (shortcut?.displayName ?? "Record Shortcut")) {
+                isRecording ? stopRecording() : startRecording()
+            }
+            Menu {
+                ForEach(KeyboardShortcut.suggestions, id: \.displayName) { suggestion in
+                    Button(suggestion.displayName) { shortcut = suggestion }
+                }
+                Divider()
+                Button("None") { shortcut = nil }
+            } label: {
+                Image(systemName: "chevron.down")
+            }
+            .menuStyle(.borderlessButton)
+            .menuIndicator(.hidden)
+            .frame(width: 22)
+            .help("Suggestions")
+        }
+        .onDisappear(perform: stopRecording)
+    }
+
+    private func startRecording() {
+        isRecording = true
+        // Only key presses aimed at this window are seen, and only while recording
+        monitor = NSEvent.addLocalMonitorForEvents(matching: .keyDown) { event in
+            let plain = event.modifierFlags.intersection([.command, .option, .control, .shift]).isEmpty
+            if plain && event.keyCode == UInt16(kVK_Escape) {
+                stopRecording()
+            } else if plain && (event.keyCode == UInt16(kVK_Delete) || event.keyCode == UInt16(kVK_ForwardDelete)) {
+                shortcut = nil
+                stopRecording()
+            } else {
+                let candidate = KeyboardShortcut(keyCode: event.keyCode, modifiers: event.modifierFlags)
+                if candidate.isValid {
+                    shortcut = candidate
+                    stopRecording()
+                } else {
+                    NSSound.beep()  // needs ⌘, ⌥ or ⌃, or a function key
+                }
+            }
+            return nil
+        }
+    }
+
+    private func stopRecording() {
+        if let monitor { NSEvent.removeMonitor(monitor) }
+        monitor = nil
+        isRecording = false
     }
 }
 

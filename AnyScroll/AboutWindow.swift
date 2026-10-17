@@ -11,7 +11,7 @@ final class AboutWindowController: NSObject {
 
     /// Shows the About window; the steps describe the current activation button
     /// and whether horizontal scrolling is on.
-    func show(activationMethod: ActivationMethod, horizontalScrolling: Bool, optionTrackpad: Bool,
+    func show(activationMethod: ActivationMethod, shortcut: String?, horizontalScrolling: Bool, optionTrackpad: Bool,
               releaseStopsHold: Bool) {
         window?.close()
 
@@ -45,16 +45,18 @@ final class AboutWindowController: NSObject {
         content.setCustomSpacing(16, after: tagline)
 
         let directions = horizontalScrolling ? "in any direction" : "up or down"
-        let start = optionTrackpad
-            ? "Press \(activationMethod.rawValue), or hold Option and start a two-finger scroll, where you want to scroll. An anchor appears."
-            : "Press \(activationMethod.rawValue) where you want to scroll. An anchor appears."
+        var alternatives: [String] = []
+        if let shortcut { alternatives.append("\(shortcut) on the keyboard") }
+        if optionTrackpad { alternatives.append("hold Option and start a two-finger scroll") }
+        let ways = ([activationMethod.rawValue] + alternatives).joined(separator: ", or ")
+        let start = "Press \(ways)\(alternatives.isEmpty ? "" : ",") where you want to scroll. An anchor appears."
         let move = "Move the pointer \(directions) from the anchor\(optionTrackpad ? " (on a trackpad, with one finger)" : ""). The further you go, the faster it scrolls."
         let steps = NSStackView(views: [
             stepRow(1, start),
             stepRow(2, move),
             stepRow(3, releaseStopsHold
-                ? "Click any button to stop. If you held the button down while moving, just let go."
-                : "Click any button to stop."),
+                ? "Click any button or press Esc to stop. If you held the button down while moving, just let go."
+                : "Click any button or press Esc to stop."),
         ])
         steps.orientation = .vertical
         steps.alignment = .leading

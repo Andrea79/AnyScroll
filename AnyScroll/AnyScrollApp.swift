@@ -98,6 +98,18 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate, Settin
     var excludedApps: [String] = [] {        // bundle ids where auto-scroll never starts
         didSet { settingChanged(excludedApps, "excludedApps") { $0.configureInterceptor() } }
     }
+    var keyboardShortcut: KeyboardShortcut? {   // starts or stops auto-scroll at the pointer
+        didSet {
+            guard !isLoadingSettings else { return }
+            if let keyboardShortcut {
+                UserDefaults.standard.set(keyboardShortcut.storedValue, forKey: "keyboardShortcut")
+            } else {
+                UserDefaults.standard.removeObject(forKey: "keyboardShortcut")
+            }
+            applyKeyboardShortcut()
+            refreshSettingControls()
+        }
+    }
     var horizontalScrolling = false {         // off: only up and down
         didSet { settingChanged(horizontalScrolling, "horizontalScrolling") }
     }
@@ -111,6 +123,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate, Settin
 
     private lazy var settingsWindow = SettingsWindowController(host: self)
     private let aboutWindow = AboutWindowController()
+    private let hotKey = GlobalHotKey()
 
     // Menu items that show a setting
     private var startStopItem: NSMenuItem!
@@ -129,6 +142,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate, Settin
         optionScrollStartsAutoScroll = defaults.bool(forKey: "optionScrollStartsAutoScroll")
         horizontalScrolling = defaults.bool(forKey: "horizontalScrolling")
         excludedApps = defaults.stringArray(forKey: "excludedApps") ?? []
+        keyboardShortcut = KeyboardShortcut(storedValue: defaults.object(forKey: "keyboardShortcut"))
         releaseStopsHold = defaults.object(forKey: "releaseStopsHold") as? Bool ?? true
         if let savedMethod = defaults.string(forKey: "activationMethod"),
            let method = ActivationMethod(rawValue: savedMethod) {
@@ -162,6 +176,14 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate, Settin
         #endif
 
         updateTrackpadActivation()
+
+        hotKey.onPress = { [weak self] slot in
+            switch slot {
+            case .toggle: self?.toggleAutoScrollFromMenu()
+            case .stop: self?.stopAutoScroll()
+            }
+        }
+        applyKeyboardShortcut()
     }
 
     func applicationWillTerminate(_ notification: Notification) {
@@ -242,6 +264,23 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate, Settin
         settingsWindow.refresh()
     }
 
+    /// Registers the keyboard shortcut; if macOS uses it or refuses it, says so and clears it.
+    private func applyKeyboardShortcut() {
+        let usedBySystem = keyboardShortcut?.isUsedBySystem ?? false
+        guard usedBySystem || !hotKey.register(keyboardShortcut, for: .toggle), let refused = keyboardShortcut else { return }
+        hotKey.register(nil, for: .toggle)
+        DispatchQueue.main.async { [weak self] in
+            self?.keyboardShortcut = nil
+            let alert = NSAlert()
+            alert.messageText = "\(refused.displayName) can't be used"
+            alert.informativeText = usedBySystem
+                ? "macOS already uses this shortcut. Choose a different one in Settings."
+                : "macOS didn't accept this shortcut. Choose a different one in Settings."
+            NSApp.activate(ignoringOtherApps: true)
+            alert.runModal()
+        }
+    }
+
     private func configureInterceptor() {
         interceptor.configure(activationMethod: activationMethod, releaseStopsHold: releaseStopsHold,
                               excludedApps: Set(excludedApps))
@@ -269,6 +308,8 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate, Settin
 
         isAutoScrolling = true
         interceptor.setScrolling(true)
+        // Esc stops auto-scroll; it is taken from other apps only while scrolling
+        hotKey.register(GlobalHotKey.escape, for: .stop)
         scrollIndicator.show(at: point, horizontal: horizontalScrolling)
         startFrameClock(at: point)
     }
@@ -286,6 +327,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate, Settin
         fallbackTimer?.invalidate()
         fallbackTimer = nil
         scrollIndicator.hide()
+        hotKey.register(nil, for: .stop)
         isAutoScrolling = false
         anchor = nil
     }
@@ -477,7 +519,8 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate, Settin
     }
 
     @objc func showAbout() {
-        aboutWindow.show(activationMethod: activationMethod, horizontalScrolling: horizontalScrolling,
+        aboutWindow.show(activationMethod: activationMethod, shortcut: keyboardShortcut?.displayName,
+                         horizontalScrolling: horizontalScrolling,
                          optionTrackpad: optionScrollStartsAutoScroll, releaseStopsHold: releaseStopsHold)
     }
 

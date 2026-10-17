@@ -9,7 +9,7 @@ set -euo pipefail
 cd "$(dirname "$0")/.."
 export DEVELOPER_DIR="${DEVELOPER_DIR:-/Applications/Xcode.app/Contents/Developer}"
 
-VERSION="1.1"
+VERSION="1.2"
 if [ "${1:-}" = "release" ]; then
     APP="build/release/AnyScroll.app"
     BUNDLE_ID="io.github.andrea79.AnyScroll"
