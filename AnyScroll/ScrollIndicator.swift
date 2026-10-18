@@ -18,15 +18,31 @@ enum HorizontalDirection {
     case none, left, right
 }
 
+/// Which ways auto-scroll moves the page: the global setting or a per-app rule.
+enum ScrollDirections: String, CaseIterable {
+    case vertical, horizontal, both
+
+    var title: String {
+        switch self {
+        case .vertical: return "Vertical"
+        case .horizontal: return "Horizontal"
+        case .both: return "Both"
+        }
+    }
+
+    var allowsVertical: Bool { self != .horizontal }
+    var allowsHorizontal: Bool { self != .vertical }
+}
+
 @MainActor
 final class ScrollIndicator {
     private let anchorSize: CGFloat = 38
     private var window: NSPanel?
     private var anchorView: AnchorView?
 
-    func show(at point: NSPoint, horizontal: Bool) {
+    func show(at point: NSPoint, directions: ScrollDirections) {
         let view = AnchorView(frame: NSRect(x: 0, y: 0, width: anchorSize, height: anchorSize))
-        view.showsHorizontal = horizontal
+        view.directions = directions
         let panel = NSPanel(contentRect: frame(centeredAt: point),
                             styleMask: [.borderless, .nonactivatingPanel],
                             backing: .buffered,
@@ -73,7 +89,8 @@ final class ScrollIndicator {
             NSBezierPath(ovalIn: NSRect(x: mid.x - 1.1, y: mid.y - 1.1, width: 2.2, height: 2.2)).fill()
             // Four arrows need to sit further out and be narrower so they do not touch
             let (tip, base, halfWidth): (CGFloat, CGFloat, CGFloat) = horizontal ? (6.6, 3.5, 2.1) : (6.2, 2.6, 2.6)
-            for arrow in ArrowShape.all(around: mid, tip: tip, base: base, halfWidth: halfWidth, horizontal: horizontal) {
+            for arrow in ArrowShape.all(around: mid, tip: tip, base: base, halfWidth: halfWidth,
+                                        vertical: true, horizontal: horizontal) {
                 arrow.path.fill()
             }
             return true
@@ -94,10 +111,10 @@ private struct ArrowShape {
     let path: NSBezierPath
     let isActive: (VerticalDirection, HorizontalDirection) -> Bool
 
-    /// Up and down arrows, plus left and right ones when horizontal is true.
+    /// Up and down arrows and/or left and right ones.
     /// View coordinates are not flipped: larger y is up.
     static func all(around mid: NSPoint, tip: CGFloat, base: CGFloat, halfWidth: CGFloat,
-                    horizontal: Bool) -> [ArrowShape] {
+                    vertical: Bool, horizontal: Bool) -> [ArrowShape] {
         func triangle(_ points: [NSPoint]) -> NSBezierPath {
             let path = NSBezierPath()
             path.move(to: points[0])
@@ -105,16 +122,19 @@ private struct ArrowShape {
             path.close()
             return path
         }
-        var arrows = [
-            ArrowShape(path: triangle([NSPoint(x: mid.x, y: mid.y + tip),
-                                       NSPoint(x: mid.x - halfWidth, y: mid.y + base),
-                                       NSPoint(x: mid.x + halfWidth, y: mid.y + base)]),
-                       isActive: { v, _ in v == .up }),
-            ArrowShape(path: triangle([NSPoint(x: mid.x, y: mid.y - tip),
-                                       NSPoint(x: mid.x - halfWidth, y: mid.y - base),
-                                       NSPoint(x: mid.x + halfWidth, y: mid.y - base)]),
-                       isActive: { v, _ in v == .down }),
-        ]
+        var arrows: [ArrowShape] = []
+        if vertical {
+            arrows += [
+                ArrowShape(path: triangle([NSPoint(x: mid.x, y: mid.y + tip),
+                                           NSPoint(x: mid.x - halfWidth, y: mid.y + base),
+                                           NSPoint(x: mid.x + halfWidth, y: mid.y + base)]),
+                           isActive: { v, _ in v == .up }),
+                ArrowShape(path: triangle([NSPoint(x: mid.x, y: mid.y - tip),
+                                           NSPoint(x: mid.x - halfWidth, y: mid.y - base),
+                                           NSPoint(x: mid.x + halfWidth, y: mid.y - base)]),
+                           isActive: { v, _ in v == .down }),
+            ]
+        }
         if horizontal {
             arrows += [
                 ArrowShape(path: triangle([NSPoint(x: mid.x - tip, y: mid.y),
@@ -134,7 +154,7 @@ private struct ArrowShape {
 private final class AnchorView: NSView {
     var vertical: VerticalDirection = .none
     var horizontal: HorizontalDirection = .none
-    var showsHorizontal = true
+    var directions: ScrollDirections = .both
 
     private let inactiveColor = NSColor(white: 0.25, alpha: 1)
 
@@ -151,7 +171,8 @@ private final class AnchorView: NSView {
         inactiveColor.setFill()
         dot.fill()
 
-        for arrow in ArrowShape.all(around: mid, tip: 13, base: 6, halfWidth: 5, horizontal: showsHorizontal) {
+        for arrow in ArrowShape.all(around: mid, tip: 13, base: 6, halfWidth: 5,
+                                    vertical: directions.allowsVertical, horizontal: directions.allowsHorizontal) {
             (arrow.isActive(vertical, horizontal) ? NSColor.systemBlue : inactiveColor).setFill()
             arrow.path.fill()
         }

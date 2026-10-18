@@ -18,9 +18,13 @@ wheel to roll, nothing to hold down.
   scroll sideways and diagonally.
 - **Clicks stay with AnyScroll**: the click that starts or stops scrolling never
   reaches the app underneath, so it does not open links or press buttons.
-- **Smooth**: scrolls once per display frame (60 or 120 Hz), with sub-pixel
-  precision at slow speeds.
-- **Full speed near screen edges**: the speed builds up sooner when there is
+- **Smooth**: each pixel is sent when it is due rather than in step with the
+  display, so pages move evenly; the slowest speed is one pixel per frame at
+  60 Hz, below which whole-pixel steps would show.
+- **Stays on its window**: auto-scroll belongs to the window it started in; if
+  the pointer leaves it, scrolling pauses until it comes back, so another app
+  is never scrolled by mistake.
+- **Full speed near window edges**: the speed builds up sooner when there is
   little room left to move the pointer.
 - **Choose how to start**: middle click, Shift/Cmd/Option + middle click,
   double middle click, or a side button. Optionally Option + two-finger
@@ -28,6 +32,9 @@ wheel to roll, nothing to hold down.
 - **Keyboard shortcut**: record your own or pick a suggestion to start and stop
   auto-scroll at the pointer, handy with a Magic Mouse or a trackpad. It uses
   the system hot-key service, so AnyScroll never reads what you type.
+- **Per-app directions**: choose vertical, horizontal or both for specific apps
+  (say, both in a spreadsheet, horizontal only in a timeline); the others follow
+  the general setting.
 - **Exclude apps** that use the middle button themselves, such as panning in
   design or 3D apps: AnyScroll leaves the click to them.
 - **Adjustable speed** (0.2x to 3.0x), natural scrolling, open at login.
@@ -78,6 +85,10 @@ To measure CPU, wakeups, energy and memory of the running app:
 For a repeatable comparison between versions, `./scripts/bench.sh` runs the Dev
 build with a scripted pointer on every screen and appends the results to
 `bench/results.csv`, which stays on your Mac (it is not tracked by git).
+To measure how smoothly a page scrolls, open `scripts/smoothness.html` in a
+browser (or paste `scripts/smoothness.js` into the console of any page) and
+auto-scroll over it; `./scripts/smoothness.sh` scrolls it at constant speeds with
+AnyScroll and other engines, for comparison (the Dev build needs Accessibility).
 
 ## How it was made
 

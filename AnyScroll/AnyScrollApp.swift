@@ -67,11 +67,14 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate, Settin
     var isAutoScrolling = false
     var anchor: NSPoint?               // where auto-scroll started, in screen coordinates
     var edgeBoost = EdgeBoost()
-    var displayLink: NSObject?         // CADisplayLink (macOS 14+)
-    var fallbackTimer: Timer?          // before macOS 14
-    var lastFrameTime: CFTimeInterval?
-    var scrollRemainderX: CGFloat = 0  // sub-pixel scroll carried to the next frame
+    var activeDirections: ScrollDirections = .vertical   // for the current auto-scroll
+    var scrollWindowFrame: NSRect?     // window auto-scroll started in (screen coordinates)
+    var scrollClock: DispatchSourceTimer?
+    var lastTickTime: CFTimeInterval?
+    var scrollRemainderX: CGFloat = 0  // fraction of a pixel carried to the next event
     var scrollRemainderY: CGFloat = 0
+    var scrollSpeedX: CGFloat = 0      // current speeds, pixels per second
+    var scrollSpeedY: CGFloat = 0
     private var debugFrame = 0
     #if DEBUG_LOG
     /// Where the pointer is; the Dev build's bench mode replaces it with a scripted path.
@@ -81,6 +84,8 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate, Settin
     let deadZone: CGFloat = 5.0
     // Distance past the dead zone at which the speed curve reaches its cap
     let fullSpeedDistance: CGFloat = 50 * (30 / 2.5).squareRoot()
+    /// Slowest auto-scroll in pixels per second, one pixel per frame at 60 Hz.
+    let minimumSpeed: CGFloat = 60
 
     // Settings: setting one saves it, applies it and refreshes the menu and Settings window
     var activationMethod: ActivationMethod = .middleClick {
@@ -113,6 +118,11 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate, Settin
     var horizontalScrolling = false {         // off: only up and down
         didSet { settingChanged(horizontalScrolling, "horizontalScrolling") }
     }
+    var appScrollDirections: [String: ScrollDirections] = [:] {   // bundle id -> directions
+        didSet {
+            settingChanged(appScrollDirections.mapValues(\.rawValue), "appScrollDirections")
+        }
+    }
     var isDirectionInverted = false {         // "Natural scrolling"; default is "up scrolls up"
         didSet { settingChanged(isDirectionInverted, "invertScrollDirection") }
     }
@@ -141,6 +151,8 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate, Settin
         if scrollSensitivity == 0 { scrollSensitivity = 1.0 } // Default if not set
         optionScrollStartsAutoScroll = defaults.bool(forKey: "optionScrollStartsAutoScroll")
         horizontalScrolling = defaults.bool(forKey: "horizontalScrolling")
+        appScrollDirections = ((defaults.dictionary(forKey: "appScrollDirections") as? [String: String]) ?? [:])
+            .compactMapValues(ScrollDirections.init(rawValue:))
         excludedApps = defaults.stringArray(forKey: "excludedApps") ?? []
         keyboardShortcut = KeyboardShortcut(storedValue: defaults.object(forKey: "keyboardShortcut"))
         releaseStopsHold = defaults.object(forKey: "releaseStopsHold") as? Bool ?? true
@@ -157,7 +169,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate, Settin
         // which Swift 6 rejects as a global mutable variable
         let options = ["AXTrustedCheckOptionPrompt": true] as CFDictionary
         #if DEBUG_LOG
-        if !Bench.isRequested { _ = AXIsProcessTrustedWithOptions(options) }
+        if !Bench.isRequested && !SmoothTest.isRequested { _ = AXIsProcessTrustedWithOptions(options) }
         #else
         _ = AXIsProcessTrustedWithOptions(options)
         #endif
@@ -173,6 +185,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate, Settin
         interceptor.start()
         #if DEBUG_LOG
         Bench.runIfRequested(self)
+        SmoothTest.runIfRequested(self)
         #endif
 
         updateTrackpadActivation()
@@ -296,22 +309,35 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate, Settin
         }
     }
 
-    func startAutoScroll(at point: NSPoint) {
+    /// `followWindow`: keep auto-scroll on the window under `point` (false only for the benchmark).
+    func startAutoScroll(at point: NSPoint, followWindow: Bool = true) {
         tearDownScrolling()
 
         anchor = point
-        edgeBoost = EdgeBoost(around: point, screenFrames: NSScreen.screens.map(\.frame),
+        let screens = NSScreen.screens.map(\.frame)
+        let mainScreenTop = NSScreen.screens.first?.frame.maxY ?? 0
+        let window = followWindow ? AppUnderPointer.window(at: CGPoint(x: point.x, y: mainScreenTop - point.y)) : nil
+        // Scrolling pauses outside this window, and the speed boost uses its edges
+        // (where they are on screen), so full speed is reachable without leaving it
+        scrollWindowFrame = window.map {
+            NSRect(x: $0.bounds.minX, y: mainScreenTop - $0.bounds.maxY, width: $0.bounds.width, height: $0.bounds.height)
+        }
+        let visibleWindow = scrollWindowFrame.map { frame in screens.map { $0.intersection(frame) }.filter { !$0.isEmpty } }
+        edgeBoost = EdgeBoost(around: point, screenFrames: visibleWindow.flatMap { $0.isEmpty ? nil : $0 } ?? screens,
                               deadZone: deadZone, fullSpeedDistance: fullSpeedDistance)
         scrollRemainderX = 0
         scrollRemainderY = 0
-        lastFrameTime = nil
+        scrollSpeedX = 0
+        scrollSpeedY = 0
+        lastTickTime = nil
 
         isAutoScrolling = true
         interceptor.setScrolling(true)
         // Esc stops auto-scroll; it is taken from other apps only while scrolling
         hotKey.register(GlobalHotKey.escape, for: .stop)
-        scrollIndicator.show(at: point, horizontal: horizontalScrolling)
-        startFrameClock(at: point)
+        activeDirections = directions(for: window?.bundleIdentifier)
+        scrollIndicator.show(at: point, directions: activeDirections)
+        startScrollClock()
     }
 
     func stopAutoScroll() {
@@ -320,52 +346,53 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate, Settin
     }
 
     private func tearDownScrolling() {
-        if #available(macOS 14.0, *) {
-            (displayLink as? CADisplayLink)?.invalidate()
-        }
-        displayLink = nil
-        fallbackTimer?.invalidate()
-        fallbackTimer = nil
+        scrollClock?.cancel()
+        scrollClock = nil
         scrollIndicator.hide()
         hotKey.register(nil, for: .stop)
         isAutoScrolling = false
         anchor = nil
+        scrollWindowFrame = nil
     }
 
-    /// Scrolls once per frame of the display auto-scroll started on, so every frame
-    /// moves by an even amount (a fixed 100 Hz timer beats against 60/120 Hz screens).
-    private func startFrameClock(at point: NSPoint) {
-        if #available(macOS 14.0, *),
-           let screen = NSScreen.screens.first(where: { NSMouseInRect(point, $0.frame, false) }) ?? NSScreen.main {
-            let link = screen.displayLink(target: self, selector: #selector(displayFrame(_:)))
-            link.preferredFrameRateRange = CAFrameRateRange(minimum: 60, maximum: 120, preferred: 120)
-            link.add(to: .main, forMode: .common)
-            displayLink = link
-        } else {
-            let timer = Timer(timeInterval: 1.0 / 120, target: self, selector: #selector(fallbackFrame),
-                              userInfo: nil, repeats: true)
-            RunLoop.main.add(timer, forMode: .common)
-            fallbackTimer = timer
+    /// The per-app rule for this app, else the global setting.
+    private func directions(for bundleIdentifier: String?) -> ScrollDirections {
+        let global: ScrollDirections = horizontalScrolling ? .both : .vertical
+        return bundleIdentifier.flatMap { appScrollDirections[$0] } ?? global
+    }
+
+    /// Posts each whole pixel when it is due rather than once per display frame.
+    /// Events sent in step with the display reach a browser just as it draws, so some
+    /// frames get none and the next gets two, which shows as a small judder.
+    private func startScrollClock() {
+        let clock = DispatchSource.makeTimerSource(queue: .main)
+        clock.setEventHandler { [weak self] in
+            MainActor.assumeIsolated { self?.scrollTick() }
         }
+        scrollClock = clock
+        clock.schedule(deadline: .now())
+        clock.resume()
     }
 
-    @available(macOS 14.0, *)
-    @objc private func displayFrame(_ link: CADisplayLink) {
-        scrollFrame(at: link.timestamp)
-    }
-
-    @objc private func fallbackFrame() {
-        scrollFrame(at: CACurrentMediaTime())
-    }
-
-    private func scrollFrame(at time: CFTimeInterval) {
-        // Clamp so a stall (e.g. display sleep) does not turn into one big jump
+    private func scrollTick() {
+        let time = CACurrentMediaTime()
         #if DEBUG_LOG
-        if let last = lastFrameTime { Bench.stats?.frameIntervals.append(time - last) }
+        if let last = lastTickTime { Bench.stats?.frameIntervals.append(time - last) }
         #endif
-        let elapsed = lastFrameTime.map { min(max(time - $0, 0), 0.05) } ?? 1.0 / 60
-        lastFrameTime = time
+        // Clamp so a stall (e.g. sleep) does not turn into one big jump
+        let elapsed = lastTickTime.map { min(max(time - $0, 0), 0.05) } ?? 1.0 / 60
+        lastTickTime = time
         performScroll(seconds: CGFloat(elapsed))
+        guard isAutoScrolling else { return }
+
+        // Next tick when the faster axis completes its next pixel: at least 60 times a
+        // second so the anchor and speed follow the pointer, at most 180 (larger steps
+        // beyond: as smooth as more events, for less CPU)
+        func due(_ speed: CGFloat, _ remainder: CGFloat) -> Double {
+            speed > 0 ? Double(max(1 - abs(remainder), 0) / speed) : .infinity
+        }
+        let wait = min(due(scrollSpeedX, scrollRemainderX), due(scrollSpeedY, scrollRemainderY))
+        scrollClock?.schedule(deadline: .now() + min(max(wait, 1.0 / 180), 1.0 / 60), leeway: .milliseconds(1))
     }
 
     func performScroll(seconds: CGFloat) {
@@ -375,11 +402,22 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate, Settin
         #else
         let current = NSEvent.mouseLocation
         #endif
+
+        // Outside the window auto-scroll started in, pause until the pointer comes back
+        if let frame = scrollWindowFrame, !frame.contains(current) {
+            scrollIndicator.update(vertical: .none, horizontal: .none)
+            scrollRemainderX = 0
+            scrollRemainderY = 0
+            scrollSpeedX = 0
+            scrollSpeedY = 0
+            return
+        }
+
         let deltaX = current.x - start.x
         let deltaY = current.y - start.y
 
-        let distanceX = horizontalScrolling ? max(0, abs(deltaX) - deadZone) : 0
-        let distanceY = max(0, abs(deltaY) - deadZone)
+        let distanceX = activeDirections.allowsHorizontal ? max(0, abs(deltaX) - deadZone) : 0
+        let distanceY = activeDirections.allowsVertical ? max(0, abs(deltaY) - deadZone) : 0
         // The arrows show where the page goes, so they flip with Natural scrolling
         let pointsUp = (deltaY > 0) != isDirectionInverted
         let pointsRight = (deltaX > 0) != isDirectionInverted
@@ -392,11 +430,13 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate, Settin
         // Flipped the default direction - now moving up scrolls up by default
         let directionMultiplier = isDirectionInverted ? 1.0 : -1.0  // Inverted the multiplier
         // wheel1 > 0 scrolls up, wheel2 > 0 scrolls left
-        let amountY = (deltaY > 0 ? -1.0 : 1.0) * directionMultiplier * scrollSpeed(forDistance: boostedY) * seconds
-        let amountX = (deltaX > 0 ? 1.0 : -1.0) * directionMultiplier * scrollSpeed(forDistance: boostedX) * seconds
+        scrollSpeedX = scrollSpeed(forDistance: boostedX)
+        scrollSpeedY = scrollSpeed(forDistance: boostedY)
+        let amountY = (deltaY > 0 ? -1.0 : 1.0) * directionMultiplier * scrollSpeedY * seconds
+        let amountX = (deltaX > 0 ? 1.0 : -1.0) * directionMultiplier * scrollSpeedX * seconds
 
-        // Events carry whole pixels: keep the fraction for the next frame so slow
-        // scrolling stays smooth instead of being rounded away
+        // Events carry whole pixels: keep the fraction for the next event so the
+        // average speed is exact instead of being rounded away
         scrollRemainderX += amountX
         scrollRemainderY += amountY
         let wheelX = scrollRemainderX.rounded(.towardZero)
@@ -455,7 +495,9 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate, Settin
 
         // Dynamic threshold based on sensitivity - allow very slow scrolling at low sensitivities
         let threshold = min(0.1, adjustedSensitivity * 0.5)
-        return perStep < threshold ? 0 : perStep * 100
+        // Events carry whole pixels, so below about one pixel per frame at 60 Hz the
+        // page moves in visible steps: once scrolling, never go slower than that
+        return perStep < threshold ? 0 : max(perStep * 100, minimumSpeed)
     }
 
     // Screen coordinates have their origin at the bottom-left of the main display,

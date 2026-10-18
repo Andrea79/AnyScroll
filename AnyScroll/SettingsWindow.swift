@@ -20,6 +20,7 @@ protocol SettingsHost: AnyObject {
     var optionScrollStartsAutoScroll: Bool { get set }
     var scrollSensitivity: Double { get set }
     var horizontalScrolling: Bool { get set }
+    var appScrollDirections: [String: ScrollDirections] { get set }
     var excludedApps: [String] { get set }
     var keyboardShortcut: KeyboardShortcut? { get set }
     var isDirectionInverted: Bool { get set }
@@ -133,7 +134,54 @@ struct SettingsView: View {
             } header: {
                 Text("Scrolling")
             } footer: {
-                FooterText("Near a screen edge the speed builds up sooner, so full speed is still reachable.")
+                FooterText("Auto-scroll stays on the window it started in: if the pointer leaves it, scrolling "
+                           + "pauses until the pointer comes back. Near the window's edges the speed builds up "
+                           + "sooner, so full speed is still reachable.")
+            }
+
+            Section {
+                let rules = store.binding(\.appScrollDirections, default: [:])
+                if rules.wrappedValue.isEmpty {
+                    Text("No apps").foregroundStyle(.secondary)
+                }
+                ForEach(rules.wrappedValue.keys.sorted { AppInfo.name($0) < AppInfo.name($1) }, id: \.self) { bundleID in
+                    HStack(spacing: 8) {
+                        Image(nsImage: AppInfo.icon(bundleID))
+                            .resizable()
+                            .frame(width: 18, height: 18)
+                        Text(AppInfo.name(bundleID))
+                        Spacer()
+                        Picker(AppInfo.name(bundleID), selection: Binding(
+                            get: { rules.wrappedValue[bundleID] ?? .both },
+                            set: { rules.wrappedValue[bundleID] = $0 }
+                        )) {
+                            ForEach(ScrollDirections.allCases, id: \.self) { Text($0.title).tag($0) }
+                        }
+                        .labelsHidden()
+                        .fixedSize()
+                        Button {
+                            rules.wrappedValue[bundleID] = nil
+                        } label: {
+                            Image(systemName: "minus.circle")
+                        }
+                        .buttonStyle(.borderless)
+                        .help("Remove")
+                    }
+                }
+                Button("Add App…") {
+                    // A new rule starts as the opposite of the general setting, which is why it is added
+                    let initial: ScrollDirections = store.binding(\.horizontalScrolling, default: false).wrappedValue
+                        ? .vertical : .both
+                    for bundleID in AppInfo.chooseApps(title: "Choose Apps", prompt: "Add")
+                    where rules.wrappedValue[bundleID] == nil {
+                        rules.wrappedValue[bundleID] = initial
+                    }
+                }
+            } header: {
+                Text("Per-App Directions")
+            } footer: {
+                FooterText("Choose vertical, horizontal or both for specific apps; the others follow "
+                           + "Horizontal scrolling above. The app under the pointer when auto-scroll starts decides.")
             }
 
             Section {
@@ -158,7 +206,8 @@ struct SettingsView: View {
                     }
                 }
                 Button("Add App…") {
-                    let added = AppInfo.chooseApps().filter { !excluded.wrappedValue.contains($0) }
+                    let added = AppInfo.chooseApps(title: "Exclude Apps", prompt: "Exclude")
+                        .filter { !excluded.wrappedValue.contains($0) }
                     excluded.wrappedValue += added
                 }
             } header: {
@@ -256,10 +305,10 @@ enum AppInfo {
     }
 
     /// Lets the user pick apps from the Applications folder; returns their bundle ids.
-    static func chooseApps() -> [String] {
+    static func chooseApps(title: String, prompt: String) -> [String] {
         let panel = NSOpenPanel()
-        panel.title = "Exclude Apps"
-        panel.prompt = "Exclude"
+        panel.title = title
+        panel.prompt = prompt
         panel.allowedContentTypes = [.application]
         panel.allowsMultipleSelection = true
         panel.directoryURL = URL(fileURLWithPath: "/Applications")

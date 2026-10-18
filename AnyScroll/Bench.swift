@@ -4,7 +4,7 @@
 //
 //  Scripted usage for scripts/bench.sh, in the Dev build only (-D DEBUG_LOG):
 //
-//    AnyScroll --bench <seconds> [--screen N] [--label text] [--out results.csv]
+//    AnyScroll --bench <seconds> [--screen N] [--follow-window] [--label text] [--out results.csv]
 //
 //  Measures the app at rest, then auto-scrolls on screen N with a scripted pointer
 //  path for <seconds>, then opens and closes Settings, appends one CSV line and quits.
@@ -57,7 +57,9 @@ enum Bench {
         }
         stats = Stats()
         let scroll = await measure {
-            app.startAutoScroll(at: anchor)
+            // --follow-window keeps scrolling on the window under the anchor, as in normal use;
+            // without it the pointer path is never paused, so versions compare like for like
+            app.startAutoScroll(at: anchor, followWindow: CommandLine.arguments.contains("--follow-window"))
             await pause(seconds)
             app.stopAutoScroll()
         }

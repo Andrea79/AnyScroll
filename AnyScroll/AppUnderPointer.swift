@@ -5,12 +5,18 @@
 
 import Cocoa
 
-/// Finds the app that owns the window under a point, so auto-scroll can stay out
-/// of the apps the user excluded. Safe to call from the click interceptor thread.
+/// Finds the window under a point and the app that owns it, for excluded apps,
+/// per-app directions and keeping auto-scroll on the window it started in.
+/// Safe to call from the click interceptor thread.
 enum AppUnderPointer {
-    /// Bundle identifier of the app whose window is under `point`, in display
-    /// coordinates (origin at the top-left of the main display).
-    static func bundleIdentifier(at point: CGPoint) -> String? {
+    struct Window {
+        let bundleIdentifier: String?
+        /// In display coordinates (origin at the top-left of the main display).
+        let bounds: CGRect
+    }
+
+    /// The topmost normal app window under `point`, in display coordinates.
+    static func window(at point: CGPoint) -> Window? {
         guard let windows = CGWindowListCopyWindowInfo([.optionOnScreenOnly, .excludeDesktopElements],
                                                        kCGNullWindowID) as? [[String: Any]] else { return nil }
         let ownPID = getpid()
@@ -21,8 +27,14 @@ enum AppUnderPointer {
                   let boundsInfo = info[kCGWindowBounds as String] as? NSDictionary,
                   let bounds = CGRect(dictionaryRepresentation: boundsInfo as CFDictionary),
                   bounds.contains(point) else { continue }
-            return NSRunningApplication(processIdentifier: pid)?.bundleIdentifier
+            return Window(bundleIdentifier: NSRunningApplication(processIdentifier: pid)?.bundleIdentifier,
+                          bounds: bounds)
         }
         return nil
+    }
+
+    /// Bundle identifier of the app whose window is under `point`, in display coordinates.
+    static func bundleIdentifier(at point: CGPoint) -> String? {
+        window(at: point)?.bundleIdentifier
     }
 }

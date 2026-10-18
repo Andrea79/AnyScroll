@@ -1,0 +1,28 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Scroll Smoothness</title>
+<!--
+  A long page for scripts/smoothness.js, which measures how smoothly it scrolls.
+  To measure another page, paste smoothness.js into the browser console there.
+-->
+<style>
+  :root { --bg: #fff; --fg: #1d1d1f; --line: #e5e5ea; --accent: #0a84ff; }
+  @media (prefers-color-scheme: dark) {
+    :root { --bg: #1c1c1e; --fg: #f5f5f7; --line: #3a3a3c; --accent: #0a84ff; }
+  }
+  body { margin: 0; background: var(--bg); color: var(--fg); font: 13px -apple-system, system-ui, sans-serif; }
+  /* Small tiles: Safari does not draw one gradient over a very tall element */
+  #track { height: 400000px;
+           background-image: linear-gradient(to bottom, transparent 198px, var(--accent) 198px),
+                             linear-gradient(to bottom, transparent 19px, var(--line) 19px);
+           background-size: 100% 200px, 100% 20px; }
+</style>
+</head>
+<body>
+<div id="track"></div>
+<script src="smoothness.js"></script>
+</body>
+</html>
