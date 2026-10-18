@@ -418,20 +418,21 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate, Settin
 
         let distanceX = activeDirections.allowsHorizontal ? max(0, abs(deltaX) - deadZone) : 0
         let distanceY = activeDirections.allowsVertical ? max(0, abs(deltaY) - deadZone) : 0
-        // The arrows show where the page goes, so they flip with Natural scrolling
-        let pointsUp = (deltaY > 0) != isDirectionInverted
-        let pointsRight = (deltaX > 0) != isDirectionInverted
-        scrollIndicator.update(vertical: distanceY == 0 ? .none : (pointsUp ? .up : .down),
-                               horizontal: distanceX == 0 ? .none : (pointsRight ? .right : .left))
-
         let boostedX = distanceX * (deltaX > 0 ? edgeBoost.right : edgeBoost.left)
         let boostedY = distanceY * (deltaY > 0 ? edgeBoost.up : edgeBoost.down)
+
+        scrollSpeedX = scrollSpeed(forDistance: boostedX)
+        scrollSpeedY = scrollSpeed(forDistance: boostedY)
+        // The arrows light up once the page moves (not as soon as the pointer leaves the
+        // dead zone) and show where it goes, so they flip with Natural scrolling
+        let pointsUp = (deltaY > 0) != isDirectionInverted
+        let pointsRight = (deltaX > 0) != isDirectionInverted
+        scrollIndicator.update(vertical: scrollSpeedY == 0 ? .none : (pointsUp ? .up : .down),
+                               horizontal: scrollSpeedX == 0 ? .none : (pointsRight ? .right : .left))
 
         // Flipped the default direction - now moving up scrolls up by default
         let directionMultiplier = isDirectionInverted ? 1.0 : -1.0  // Inverted the multiplier
         // wheel1 > 0 scrolls up, wheel2 > 0 scrolls left
-        scrollSpeedX = scrollSpeed(forDistance: boostedX)
-        scrollSpeedY = scrollSpeed(forDistance: boostedY)
         let amountY = (deltaY > 0 ? -1.0 : 1.0) * directionMultiplier * scrollSpeedY * seconds
         let amountX = (deltaX > 0 ? 1.0 : -1.0) * directionMultiplier * scrollSpeedX * seconds
 
