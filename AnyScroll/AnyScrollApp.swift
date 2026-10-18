@@ -385,14 +385,15 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate, Settin
         performScroll(seconds: CGFloat(elapsed))
         guard isAutoScrolling else { return }
 
-        // Next tick when the faster axis completes its next pixel: at least 60 times a
-        // second so the anchor and speed follow the pointer, at most 180 (larger steps
-        // beyond: as smooth as more events, for less CPU)
+        // Next tick when the faster axis completes its next pixel (the minimum speed makes
+        // that at least 60 times a second), at most 180 times (larger steps beyond: as
+        // smooth as more events, for less CPU). While the page is still, 30 times a
+        // second is enough to notice the pointer moving on.
         func due(_ speed: CGFloat, _ remainder: CGFloat) -> Double {
             speed > 0 ? Double(max(1 - abs(remainder), 0) / speed) : .infinity
         }
         let wait = min(due(scrollSpeedX, scrollRemainderX), due(scrollSpeedY, scrollRemainderY))
-        scrollClock?.schedule(deadline: .now() + min(max(wait, 1.0 / 180), 1.0 / 60), leeway: .milliseconds(1))
+        scrollClock?.schedule(deadline: .now() + min(max(wait, 1.0 / 180), 1.0 / 30), leeway: .milliseconds(1))
     }
 
     func performScroll(seconds: CGFloat) {
