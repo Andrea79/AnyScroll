@@ -11,7 +11,7 @@ final class AboutWindowController: NSObject {
 
     /// Shows the About window; the steps describe the current activation button
     /// and whether horizontal scrolling is on.
-    func show(activationMethod: ActivationMethod, shortcut: String?, horizontalScrolling: Bool, optionTrackpad: Bool,
+    func show(activationMethod: ActivationMethod, shortcut: String?, horizontalScrolling: Bool, trackpadKeys: String?,
               releaseStopsHold: Bool) {
         window?.close()
 
@@ -47,10 +47,10 @@ final class AboutWindowController: NSObject {
         let directions = horizontalScrolling ? "in any direction" : "up or down"
         var alternatives: [String] = []
         if let shortcut { alternatives.append("\(shortcut) on the keyboard") }
-        if optionTrackpad { alternatives.append("hold Option and start a two-finger scroll") }
+        if let trackpadKeys { alternatives.append("hold \(trackpadKeys) and start a two-finger scroll") }
         let ways = ([activationMethod.rawValue] + alternatives).joined(separator: ", or ")
         let start = "Press \(ways)\(alternatives.isEmpty ? "" : ",") where you want to scroll. An anchor appears."
-        let move = "Move the pointer \(directions) from the anchor\(optionTrackpad ? " (on a trackpad, with one finger)" : ""). The further you go, the faster it scrolls."
+        let move = "Move the pointer \(directions) from the anchor\(trackpadKeys != nil ? " (on a trackpad, with one finger)" : ""). The further you go, the faster it scrolls."
         let steps = NSStackView(views: [
             stepRow(1, start),
             stepRow(2, move),

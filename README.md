@@ -27,8 +27,8 @@ wheel to roll, nothing to hold down.
 - **Full speed near window edges**: the speed builds up sooner when there is
   little room left to move the pointer.
 - **Choose how to start**: middle click, Shift/Cmd/Option + middle click,
-  double middle click, or a side button. Optionally Option + two-finger
-  trackpad scroll.
+  double middle click, or a side button. Optionally a two-finger trackpad
+  scroll while holding keys of your choice, such as Option or Cmd.
 - **Keyboard shortcut**: record your own or pick a suggestion to start and stop
   auto-scroll at the pointer, handy with a Magic Mouse or a trackpad. It uses
   the system hot-key service, so AnyScroll never reads what you type.
@@ -45,7 +45,7 @@ wheel to roll, nothing to hold down.
 
 - macOS 13 Ventura or later, on Apple Silicon or Intel (universal app).
 - A mouse with a middle button or side buttons (or a trackpad, with the
-  Option + scroll option).
+  trackpad keys option).
 - Accessibility permission, which macOS asks for on first launch
   (System Settings › Privacy & Security › Accessibility). AnyScroll needs it to
   see the clicks that start and stop scrolling and to send scroll events.

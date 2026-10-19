@@ -110,6 +110,40 @@ enum Bench {
         NSApp.terminate(nil)
     }
 
+    // MARK: - Settings memory
+
+    /// `--settings-cycles`: opens and closes Settings once at 10 s, nine more times from
+    /// 25 s, and quits at 70 s, so live memory can be measured from outside in between.
+    static var settingsCyclesRequested: Bool { CommandLine.arguments.contains("--settings-cycles") }
+
+    static func runSettingsCyclesIfRequested(_ app: AppDelegate) {
+        guard settingsCyclesRequested else { return }
+        Task {
+            await pause(10)
+            await settingsCycle(app)
+            print("1 cycle done")
+            await pause(13)
+            for _ in 0..<9 { await settingsCycle(app) }
+            print("10 cycles done; open ms: " + openTimes.map { String(format: "%.0f", $0) }.joined(separator: " "))
+            await pause(27)
+            NSApp.terminate(nil)
+        }
+    }
+
+    private static var openTimes: [Double] = []
+
+    /// Opens Settings, timing how long it takes to build, lay out and draw it, then closes it.
+    private static func settingsCycle(_ app: AppDelegate) async {
+        let start = CACurrentMediaTime()
+        app.showSettings()
+        let window = NSApp.windows.first { $0.title == "AnyScroll Settings" }
+        window?.displayIfNeeded()
+        openTimes.append((CACurrentMediaTime() - start) * 1000)
+        await pause(1)
+        window?.close()
+        await pause(1)
+    }
+
     // MARK: - Measuring
 
     private struct Usage {

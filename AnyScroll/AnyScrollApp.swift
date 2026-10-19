@@ -91,8 +91,8 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate, Settin
     var activationMethod: ActivationMethod = .middleClick {
         didSet { settingChanged(activationMethod.rawValue, "activationMethod") { $0.configureInterceptor() } }
     }
-    var optionScrollStartsAutoScroll = false {
-        didSet { settingChanged(optionScrollStartsAutoScroll, "optionScrollStartsAutoScroll") { $0.updateTrackpadActivation() } }
+    var trackpadKeys: TrackpadKeys? {          // nil: the trackpad does not start auto-scroll
+        didSet { settingChanged(trackpadKeys?.storedValue ?? 0, "trackpadKeys") { $0.updateTrackpadActivation() } }
     }
     var scrollSensitivity: Double = 1.0 {     // Default sensitivity multiplier
         didSet { settingChanged(scrollSensitivity, "scrollSensitivity") }
@@ -149,7 +149,10 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate, Settin
         launchAtLogin = defaults.bool(forKey: "launchAtLogin")
         scrollSensitivity = defaults.double(forKey: "scrollSensitivity")
         if scrollSensitivity == 0 { scrollSensitivity = 1.0 } // Default if not set
-        optionScrollStartsAutoScroll = defaults.bool(forKey: "optionScrollStartsAutoScroll")
+        // Before 1.2 this was an on/off setting for Option
+        trackpadKeys = defaults.object(forKey: "trackpadKeys") != nil
+            ? TrackpadKeys(storedValue: defaults.object(forKey: "trackpadKeys"))
+            : (defaults.bool(forKey: "optionScrollStartsAutoScroll") ? TrackpadKeys(modifiers: .option) : nil)
         horizontalScrolling = defaults.bool(forKey: "horizontalScrolling")
         appScrollDirections = ((defaults.dictionary(forKey: "appScrollDirections") as? [String: String]) ?? [:])
             .compactMapValues(ScrollDirections.init(rawValue:))
@@ -169,7 +172,9 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate, Settin
         // which Swift 6 rejects as a global mutable variable
         let options = ["AXTrustedCheckOptionPrompt": true] as CFDictionary
         #if DEBUG_LOG
-        if !Bench.isRequested && !SmoothTest.isRequested { _ = AXIsProcessTrustedWithOptions(options) }
+        if !Bench.isRequested && !SmoothTest.isRequested && !Bench.settingsCyclesRequested {
+            _ = AXIsProcessTrustedWithOptions(options)
+        }
         #else
         _ = AXIsProcessTrustedWithOptions(options)
         #endif
@@ -185,6 +190,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate, Settin
         interceptor.start()
         #if DEBUG_LOG
         Bench.runIfRequested(self)
+        Bench.runSettingsCyclesIfRequested(self)
         SmoothTest.runIfRequested(self)
         #endif
 
@@ -515,13 +521,13 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate, Settin
             NSEvent.removeMonitor(monitor)
             trackpadMonitor = nil
         }
-        guard optionScrollStartsAutoScroll else { return }
+        guard let keys = trackpadKeys?.modifiers else { return }
 
-        // Starts only on Option held at the beginning of a two-finger trackpad scroll;
-        // mouse wheels (no precise deltas) and scrolls already under way are ignored
+        // Starts only on exactly the chosen keys held at the beginning of a two-finger trackpad
+        // scroll; mouse wheels (no precise deltas) and scrolls already under way are ignored
         trackpadMonitor = NSEvent.addGlobalMonitorForEvents(matching: .scrollWheel) { [weak self] event in
             guard let self, !self.isAutoScrolling,
-                  event.modifierFlags.contains(.option),
+                  event.modifierFlags.intersection(TrackpadKeys.usedModifiers) == keys,
                   event.hasPreciseScrollingDeltas,
                   event.phase == .began else { return }
             let point = NSEvent.mouseLocation
@@ -565,7 +571,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate, Settin
     @objc func showAbout() {
         aboutWindow.show(activationMethod: activationMethod, shortcut: keyboardShortcut?.displayName,
                          horizontalScrolling: horizontalScrolling,
-                         optionTrackpad: optionScrollStartsAutoScroll, releaseStopsHold: releaseStopsHold)
+                         trackpadKeys: trackpadKeys?.names, releaseStopsHold: releaseStopsHold)
     }
 
     @objc func quitApp() {

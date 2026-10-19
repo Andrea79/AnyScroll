@@ -6,6 +6,65 @@
 import Cocoa
 import Carbon.HIToolbox
 
+/// Modifier keys that, held at the start of a two-finger trackpad scroll, drop the anchor.
+/// Only modifiers: any other key held while scrolling would be typed into the app.
+struct TrackpadKeys: Equatable {
+    let modifiers: NSEvent.ModifierFlags
+
+    static let usedModifiers: NSEvent.ModifierFlags = [.function, .control, .option, .shift, .command]
+
+    init(modifiers: NSEvent.ModifierFlags) {
+        self.modifiers = modifiers.intersection(Self.usedModifiers)
+    }
+
+    /// Offered in Settings next to recording one's own.
+    static let suggestions = [TrackpadKeys(modifiers: .option), TrackpadKeys(modifiers: .command)]
+
+    /// Shift alone already scrolls sideways in many apps; Control alone zooms the screen
+    /// when that Accessibility option is on.
+    var isValid: Bool {
+        !modifiers.isEmpty && modifiers != .shift && !(modifiers == .control && Self.systemZoomUsesControl)
+    }
+
+    private static var systemZoomUsesControl: Bool {
+        let zoom = UserDefaults(suiteName: "com.apple.universalaccess")
+        guard zoom?.bool(forKey: "closeViewScrollWheelToggle") == true else { return false }
+        let modifier = zoom?.object(forKey: "closeViewScrollWheelModifiersInt") as? Int
+        return (modifier ?? Int(NSEvent.ModifierFlags.control.rawValue)) == Int(NSEvent.ModifierFlags.control.rawValue)
+    }
+
+    /// E.g. "⌥", "⌃⌥".
+    var symbols: String {
+        var text = ""
+        if modifiers.contains(.function) { text += "fn" }
+        if modifiers.contains(.control) { text += "⌃" }
+        if modifiers.contains(.option) { text += "⌥" }
+        if modifiers.contains(.shift) { text += "⇧" }
+        if modifiers.contains(.command) { text += "⌘" }
+        return text
+    }
+
+    /// E.g. "Option", "Control-Option", for sentences.
+    var names: String {
+        var names: [String] = []
+        if modifiers.contains(.function) { names.append("Fn") }
+        if modifiers.contains(.control) { names.append("Control") }
+        if modifiers.contains(.option) { names.append("Option") }
+        if modifiers.contains(.shift) { names.append("Shift") }
+        if modifiers.contains(.command) { names.append("Command") }
+        return names.joined(separator: "-")
+    }
+
+    /// For UserDefaults.
+    var storedValue: Int { Int(modifiers.rawValue) }
+
+    init?(storedValue: Any?) {
+        guard let raw = storedValue as? Int, raw != 0 else { return nil }
+        self.init(modifiers: NSEvent.ModifierFlags(rawValue: UInt(raw)))
+        guard !modifiers.isEmpty else { return nil }
+    }
+}
+
 /// A key plus modifiers that starts or stops auto-scroll from anywhere.
 struct KeyboardShortcut: Equatable {
     let keyCode: UInt16

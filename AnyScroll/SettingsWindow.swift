@@ -17,7 +17,7 @@ import Carbon.HIToolbox
 protocol SettingsHost: AnyObject {
     var activationMethod: ActivationMethod { get set }
     var releaseStopsHold: Bool { get set }
-    var optionScrollStartsAutoScroll: Bool { get set }
+    var trackpadKeys: TrackpadKeys? { get set }
     var scrollSensitivity: Double { get set }
     var horizontalScrolling: Bool { get set }
     var appScrollDirections: [String: ScrollDirections] { get set }
@@ -30,6 +30,8 @@ protocol SettingsHost: AnyObject {
 @MainActor
 final class SettingsWindowController: NSObject {
     private let store: SettingsStore
+    // Kept after closing: rebuilding it on each opening is slower and, as macOS keeps
+    // the freed pages, leaves the app's footprint larger, not smaller
     private var window: NSWindow?
 
     init(host: SettingsHost) {
@@ -100,9 +102,8 @@ struct SettingsView: View {
                     Toggle("Release to stop after holding", isOn: store.binding(\.releaseStopsHold, default: true))
                         .toggleStyle(.switch)
                 }
-                Row("Option + trackpad scroll", note: "Hold Option and start a two-finger scroll to drop the anchor.") {
-                    Toggle("Option + trackpad scroll", isOn: store.binding(\.optionScrollStartsAutoScroll, default: false))
-                        .toggleStyle(.switch)
+                Row("Trackpad keys", note: "Hold them and start a two-finger scroll to drop the anchor.") {
+                    TrackpadKeysRecorder(keys: store.binding(\.trackpadKeys, default: nil))
                 }
             } header: {
                 Text("Activation")
@@ -285,6 +286,82 @@ private struct ShortcutRecorder: View {
         if let monitor { NSEvent.removeMonitor(monitor) }
         monitor = nil
         isRecording = false
+    }
+}
+
+/// Records modifier keys for the trackpad: hold them, then let go.
+private struct TrackpadKeysRecorder: View {
+    @Binding var keys: TrackpadKeys?
+    @State private var isRecording = false
+    @State private var held: NSEvent.ModifierFlags = []
+    @State private var monitor: Any?
+
+    var body: some View {
+        HStack(spacing: 4) {
+            Button(title) {
+                isRecording ? stopRecording() : startRecording()
+            }
+            Menu {
+                ForEach(TrackpadKeys.suggestions, id: \.symbols) { suggestion in
+                    Button("\(suggestion.symbols) \(suggestion.names)") { keys = suggestion }
+                }
+                Divider()
+                Button("Off") { keys = nil }
+            } label: {
+                Image(systemName: "chevron.down")
+            }
+            .menuStyle(.borderlessButton)
+            .menuIndicator(.hidden)
+            .frame(width: 22)
+            .help("Suggestions")
+        }
+        .onDisappear(perform: stopRecording)
+    }
+
+    private var title: String {
+        if isRecording { return held.isEmpty ? "Hold keys…" : TrackpadKeys(modifiers: held).symbols }
+        return keys.map { "\($0.symbols) + two fingers" } ?? "Off"
+    }
+
+    private func startRecording() {
+        isRecording = true
+        held = []
+        // Only keys aimed at this window are seen, and only while recording
+        monitor = NSEvent.addLocalMonitorForEvents(matching: [.flagsChanged, .keyDown]) { event in
+            if event.type == .keyDown {
+                if event.keyCode == UInt16(kVK_Escape) {
+                    stopRecording()
+                } else if event.keyCode == UInt16(kVK_Delete) || event.keyCode == UInt16(kVK_ForwardDelete) {
+                    keys = nil
+                    stopRecording()
+                } else {
+                    NSSound.beep()  // only modifier keys can be held while scrolling
+                }
+                return nil
+            }
+            let now = event.modifierFlags.intersection(TrackpadKeys.usedModifiers)
+            if now.isEmpty, !held.isEmpty {
+                // All let go: the keys held together are the choice
+                let candidate = TrackpadKeys(modifiers: held)
+                if candidate.isValid {
+                    keys = candidate
+                    stopRecording()
+                } else {
+                    NSSound.beep()
+                    held = []
+                }
+            } else {
+                held.formUnion(now)
+            }
+            return event
+        }
+    }
+
+    private func stopRecording() {
+        if let monitor { NSEvent.removeMonitor(monitor) }
+        monitor = nil
+        isRecording = false
+        held = []
     }
 }
 
